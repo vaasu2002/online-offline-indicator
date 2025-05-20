@@ -2,21 +2,24 @@ import Redis from 'ioredis';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const HEARTBEAT_EXPIRY = 30; // seconds
+const HEARTBEAT_EXPIRY = 30; 
 const WORKER_KEY_PREFIX = 'worker:';
+// WORKER_HEARTBEAT_KEY_PREFIX will be used to keep track of heartbeat
 const WORKER_HEARTBEAT_KEY_PREFIX = WORKER_KEY_PREFIX + 'heart-beat:';
+// WORKER_INFO_KEY_PREFIX will used store history of all workers that ever lived(instead of using another databse we are storing this in redis)
 const WORKER_INFO_KEY_PREFIX = WORKER_KEY_PREFIX + 'info:';
 
-export interface IWorker {
-  workerId: string;
-  port: number;
+export interface IWorker{
+    workerId: string;
+    port: number;
 }
 
-export interface IWorkerInfo {
-  worker: IWorker;
-  status: 'online' | 'offline';
-  lastHeartbeat: number;
-  createdAt: Date;
+export interface IWorkerInfo{
+    worker: IWorker;
+    status: 'online' | 'offline';
+    lastHeartbeat: number;
+    firstOnlineAt: Date;
+    offlineAt: Date | null;
 }
 
 export class RedisWorkerManager {
@@ -75,9 +78,18 @@ export class RedisWorkerManager {
         await this.validatingConnectionPromise();
     }
 
+    private async increaseExpirationFrequency(hzValue = 20) {
+        try {
+            await this.client.config('SET', 'hz', String(hzValue));
+            console.log(`Successfully set Redis hz value to ${hzValue}`);
+        }catch(error){
+            console.error('Failed to set Redis hz value:', error);
+        }
+    }
     async startMonitoring(): Promise<void> {
         try {
             await this.ensureConnection();
+            await this.increaseExpirationFrequency();
             console.log('Starting for monitoring for expiration events');
       
             // -- SETTING UP THE SUBSCRIBER -- 
@@ -87,18 +99,65 @@ export class RedisWorkerManager {
 
             // listerning
             this.subscriber.on('message', async (channel, message) => {
+                console.log(message);
                 // we care only about expirations events which have prefix key WORKER_HEARTBEAT_KEY_PREFIX
                 if (channel === expiryChannel 
                     && message.startsWith(WORKER_HEARTBEAT_KEY_PREFIX)){
 
                         const workerId = message.replace(WORKER_HEARTBEAT_KEY_PREFIX, '');
                         console.log(`Worker ${workerId} is now offline...`);
-                        // TODO: handle worker offline event
+                        await this.handleWorkerOfflineEvent(workerId);
                 }
             });
         }catch(error){
             console.error('Failed to start monitoring:', error);
             throw error;
+        }
+    }
+    
+    private async handleWorkerOfflineEvent(workerId:string){
+        const workerInfoKey = WORKER_INFO_KEY_PREFIX + workerId;
+        const workerInfoStr = await this.client.get(workerInfoKey);
+        if(workerInfoStr){
+            const workerInfo: IWorkerInfo = JSON.parse(workerInfoStr);
+            workerInfo.status = 'offline';
+            workerInfo.offlineAt = new Date();
+            await this.client.set(workerInfoKey, JSON.stringify(workerInfo));
+        }
+    }
+
+    // registering a newer worker that was made either to handle new work load or 
+    // to compenstate for the one that went offline
+    async registerWorker(worker: IWorker): Promise<void> {
+        await this.ensureConnection();
+        const workerInfoKey = WORKER_INFO_KEY_PREFIX + worker.workerId;
+        const workerHeartbeatKey = WORKER_HEARTBEAT_KEY_PREFIX + worker.workerId;
+    
+        const workerInfo: IWorkerInfo = {
+            worker,
+            status: 'online',
+            lastHeartbeat: Date.now(),
+            firstOnlineAt: new Date(),
+            offlineAt : null
+        };
+        await this.client.set(workerInfoKey, JSON.stringify(workerInfo));
+        await this.client.set(workerHeartbeatKey, '1', 'EX', HEARTBEAT_EXPIRY);
+    }
+    
+    // when we get heart-beat from worker
+    async updateWorkerHeartbeat(workerId: string): Promise<void> {
+        await this.ensureConnection();
+        const workerHeartbeatKey = WORKER_HEARTBEAT_KEY_PREFIX + workerId;
+        await this.client.set(workerHeartbeatKey, '1', 'EX', HEARTBEAT_EXPIRY);
+    
+        const workerInfoKey = WORKER_INFO_KEY_PREFIX + workerId;
+        const workerInfoStr = await this.client.get(workerInfoKey);
+    
+        if(workerInfoStr){
+            const workerInfo: IWorkerInfo = JSON.parse(workerInfoStr);
+            workerInfo.lastHeartbeat = Date.now();
+            workerInfo.status = 'online';
+            await this.client.set(workerInfoKey, JSON.stringify(workerInfo));
         }
     }
 }
