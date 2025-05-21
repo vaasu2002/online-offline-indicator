@@ -15,6 +15,12 @@ docker exec -it my-redis redis-cli
 
 
 ## Worker Node
+Without docker
+```bash
+PORT=4001 WORKER_ID=worker1 MASTER_NODE_URL=http://localhost:8000 npm run dev
+PORT=4002 WORKER_ID=worker2 MASTER_NODE_URL=http://localhost:8000 npm run dev
+```
+With docker
 ```bash
 # create docker image
 docker build -t worker-server .
