@@ -87,8 +87,8 @@ app.get('/workers', (req, res) => {
     res.json(workersList);
 });
 
-app.post('/worker/heart-beat', (req, res) => {
-    console.log(req.body.config);
+app.post('/worker/heart-beat', async (req, res) => {
+    await redisWorkerManager.registerWorker(req.body.config)
     // todo: connect with with heartbeat mech
     res.status(200).json({
         success: true,
