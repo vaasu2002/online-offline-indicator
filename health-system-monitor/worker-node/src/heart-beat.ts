@@ -1,12 +1,12 @@
 import axios from 'axios';
 
 const AXIOS_REQUEST_TIME_OUT = 5000;
-const HEARTBEAT_INTERVAL_MS = 4000
+const HEARTBEAT_INTERVAL_MS = 10000;
+
 export interface IWorkerHeartbeatConfig{
     workerId: string;
     port: string | number;
     masterNodeUrl: string;
-    heartbeatIntervalMs?: number;
 }
 
 export class WorkerHeartbeat{
@@ -17,9 +17,8 @@ export class WorkerHeartbeat{
     constructor(config: IWorkerHeartbeatConfig){
         this.config = {
             ...config,
-            heartbeatIntervalMs: config.heartbeatIntervalMs
         };
-        this.intervalMs = this.config.heartbeatIntervalMs;
+        this.intervalMs = HEARTBEAT_INTERVAL_MS;
     }
 
 
@@ -72,7 +71,7 @@ export class WorkerHeartbeat{
                 this.sendHeartBeat().catch(err => {
                     console.error('Error in heartbeat interval:', err);
                 });
-            }, HEARTBEAT_INTERVAL_MS);
+            }, this.intervalMs);
             this.isRunning = true;
 
         }catch(error){
@@ -85,7 +84,7 @@ export class WorkerHeartbeat{
         return this.isRunning;
     }
     public kill(exitCode: number = 1): void{
-        // process.kill(process.pid, 'SIGABRT');
-        // return process.exit(exitCode) as never;
+        process.kill(process.pid, 'SIGABRT');
+        return process.exit(exitCode) as never;
     }
 }
