@@ -12,6 +12,7 @@ const WORKER_INFO_KEY_PREFIX = WORKER_KEY_PREFIX + 'info:';
 export interface IWorker{
     workerId: string;
     port: number;
+    masterNodeUrl:string;
 }
 
 export interface IWorkerInfo{
@@ -132,7 +133,7 @@ export class RedisWorkerManager {
         await this.ensureConnection();
         const workerInfoKey = WORKER_INFO_KEY_PREFIX + worker.workerId;
         const workerHeartbeatKey = WORKER_HEARTBEAT_KEY_PREFIX + worker.workerId;
-    
+        console.log(`heart beat registered from worker node ${worker.workerId}`)
         const workerInfo: IWorkerInfo = {
             worker,
             status: 'online',
